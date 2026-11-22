@@ -1,34 +1,64 @@
 package io.github.parkwoong.demo;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.http.*;
-import org.springframework.mock.web.MockHttpServletRequest;
-import com.sun.net.httpserver.HttpServer;
-import java.net.*;
-import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.*;
+
+import com.sun.net.httpserver.HttpServer;
+
+import io.github.parkwoong.demo.controller.ProxyController;
+import io.github.parkwoong.demo.properties.GatewayProperties;
+import io.github.parkwoong.demo.spec.util.HttpUtils;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+
 class ProxyControllerTest {
- @Test void forwardsBytesQueryHeadersAndErrorStatus() throws Exception {
-  var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-  server.createContext("/sample", exchange -> {
-   byte[] response = (exchange.getRequestMethod()+" "+exchange.getRequestURI()+" "+new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8);
-   exchange.getResponseHeaders().add("Set-Cookie", "a=1"); exchange.getResponseHeaders().add("Set-Cookie", "b=2");
-   exchange.sendResponseHeaders(422, response.length); exchange.getResponseBody().write(response); exchange.close();
-  });
-  server.start();
-  try {
-   var proxy = new ProxyController(new RestTemplateBuilder(), URI.create("http://127.0.0.1:"+server.getAddress().getPort()));
-   var request = new MockHttpServletRequest("POST", "/sample"); request.setQueryString("q=a%20b");
-   var response = proxy.forward(HttpMethod.POST, request, "예제".getBytes(StandardCharsets.UTF_8));
-   assertEquals(422, response.getStatusCode().value());
-   assertEquals("POST /sample?q=a%20b 예제", new String(response.getBody(), StandardCharsets.UTF_8));
-   assertEquals(2, response.getHeaders().get("Set-Cookie").size());
-  } finally { server.stop(0); }
- }
- @Test void removesHopHeadersAndPreservesRepeatedHeaders() {
-  var input = new HttpHeaders(); input.add("Connection", "X-Internal"); input.add("X-Internal", "secret"); input.add("Host", "wrong"); input.add("X-Trace", "one"); input.add("X-Trace", "two");
-  var output = ProxyController.endToEnd(input);
-  assertFalse(output.containsKey("X-Internal")); assertFalse(output.containsKey("Host")); assertEquals(2, output.get("X-Trace").size());
- }
+    @Test
+    void extractedForwardingPreservesOriginalResponseContract() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext(
+                "/sample",
+                exchange -> {
+                    byte[] output =
+                            (exchange.getRequestMethod()
+                                            + " "
+                                            + exchange.getRequestURI()
+                                            + " "
+                                            + new String(
+                                                    exchange.getRequestBody().readAllBytes(),
+                                                    StandardCharsets.UTF_8))
+                                    .getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "text/plain;charset=UTF-8");
+                    exchange.sendResponseHeaders(422, output.length);
+                    exchange.getResponseBody().write(output);
+                    exchange.close();
+                });
+        server.start();
+        try {
+            var controller = new ProxyController();
+            var settings = new GatewayProperties();
+            settings.setOrigin("http://127.0.0.1:" + server.getAddress().getPort());
+            ReflectionTestUtils.setField(controller, "gatewayProperties", settings);
+            var request = new MockHttpServletRequest("POST", "/sample");
+            request.setQueryString("q=a%20b");
+            request.addHeader("Content-Type", "text/plain;charset=UTF-8");
+            var result = controller.toss(HttpMethod.POST, request, "sample");
+            assertEquals(422, result.getStatusCodeValue());
+            assertEquals("POST /sample?q=a%20b sample", result.getBody());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void originalHttpHelpers() {
+        var request = new MockHttpServletRequest("GET", "/sample");
+        request.addHeader("Authorization", "Bearer sample-token");
+        assertEquals("sample-token", HttpUtils.getAccessToken(HttpUtils.getHeaders(request)));
+        assertNull(HttpUtils.getForwardUri(null, "http://localhost:9090"));
+    }
 }

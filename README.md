@@ -50,6 +50,10 @@ curl -i http://localhost:8080/
 
 The response contains the upstream page. PROXY_UPSTREAM changes the destination (default: http://localhost:9090). Stop with Ctrl+C.
 
+#### Postman API
+
+Start the sample upstream on localhost:9090 as shown above. In Postman, send GET http://localhost:8080/ with no body. Expected: the upstream's HTTP 200 HTML directory page. The body depends on the files in the upstream folder.
+
 ## KR
 
 ### 프로젝트 구조
@@ -97,3 +101,7 @@ curl -i http://localhost:8080/
 ```
 
 upstream 페이지가 응답으로 반환됩니다. PROXY_UPSTREAM으로 대상 주소를 바꿀 수 있으며 기본값은 http://localhost:9090입니다. Ctrl+C로 종료합니다.
+
+#### Postman API
+
+위 안내대로 localhost:9090에서 샘플 업스트림을 실행한 뒤 Postman에서 본문 없이 GET http://localhost:8080/을 보내세요. 예상 결과: 업스트림의 HTTP 200 HTML 디렉터리 페이지입니다. 본문 내용은 업스트림 폴더의 파일에 따라 달라집니다.
